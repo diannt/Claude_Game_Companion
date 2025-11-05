@@ -36,6 +36,7 @@ from .config_manager import (
     read_yaml,
     validate_config,
 )
+from .utils.tts_config_utils import build_tts_config_dict
 
 
 class ServiceContext:
@@ -518,6 +519,10 @@ class ServiceContext:
                     f"New character config: {self.character_config.model_dump()}"
                 )
 
+                # Prepare TTS configuration
+                tts_config = self.character_config.tts_config
+                tts_config_dict = build_tts_config_dict(tts_config)
+
                 # Send responses to client
                 await websocket.send_text(
                     json.dumps(
@@ -526,8 +531,14 @@ class ServiceContext:
                             "model_info": self.live2d_model.model_info,
                             "conf_name": self.character_config.conf_name,
                             "conf_uid": self.character_config.conf_uid,
+                            "tts_config": tts_config_dict,  # Include TTS config
                         }
                     )
+                )
+
+                # Also send TTS config separately for backward compatibility
+                await websocket.send_text(
+                    json.dumps({"type": "tts-config", "config": tts_config_dict})
                 )
 
                 await websocket.send_text(
