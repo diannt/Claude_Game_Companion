@@ -24,20 +24,73 @@ def create_batch_input(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> BatchInput:
     """Create batch input for agent processing"""
+    processed_images = None
+    if images:
+        logger.info(f"Processing {len(images)} image(s) for batch input")
+        processed_images = []
+        for i, img in enumerate(images):
+            try:
+                # Validate image format
+                if not isinstance(img, dict):
+                    logger.error(f"Image {i} is not a dict: {type(img)}")
+                    continue
+
+                source_str = img.get("source", "screen")
+                data = img.get("data", "")
+                mime_type = img.get("mime_type", "image/png")
+
+                # Convert source string to ImageSource enum
+                # Map common variations to enum values
+                source_map = {
+                    "screen": ImageSource.SCREEN,
+                    "screenshot": ImageSource.SCREEN,
+                    "camera": ImageSource.CAMERA,
+                    "clipboard": ImageSource.CLIPBOARD,
+                    "upload": ImageSource.UPLOAD,
+                }
+
+                source = source_map.get(source_str.lower(), ImageSource.SCREEN)
+                if source_str.lower() not in source_map:
+                    logger.warning(
+                        f"Unknown image source '{source_str}', defaulting to SCREEN"
+                    )
+
+                # Validate data format
+                if not data:
+                    logger.error(f"Image {i} has no data")
+                    continue
+
+                # Ensure data URL format for base64 images
+                if isinstance(data, str) and not data.startswith("data:image"):
+                    # Assume it's base64 and add data URL prefix
+                    data = f"data:{mime_type};base64,{data}"
+                    logger.debug(f"Converted image {i} to data URL format")
+
+                processed_images.append(
+                    ImageData(
+                        source=source,
+                        data=data,
+                        mime_type=mime_type,
+                    )
+                )
+                logger.debug(
+                    f"Successfully processed image {i}: source={source}, mime_type={mime_type}"
+                )
+            except Exception as e:
+                logger.error(f"Error processing image {i}: {e}")
+                import traceback
+
+                logger.debug(traceback.format_exc())
+
+        if not processed_images:
+            logger.warning("No images could be processed successfully")
+            processed_images = None
+
     return BatchInput(
         texts=[
             TextData(source=TextSource.INPUT, content=input_text, from_name=from_name)
         ],
-        images=[
-            ImageData(
-                source=ImageSource(img["source"]),
-                data=img["data"],
-                mime_type=img["mime_type"],
-            )
-            for img in (images or [])
-        ]
-        if images
-        else None,
+        images=processed_images,
         metadata=metadata,
     )
 

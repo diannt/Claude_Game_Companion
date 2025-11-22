@@ -85,6 +85,51 @@ async def process_single_conversation(
         if images:
             logger.info(f"With {len(images)} images")
 
+        # Proactive tool calling based on user interests
+        proactive_tool_results = None
+        if (
+            context.rag_enabled
+            and context.rag_components
+            and not skip_history
+        ):
+            try:
+                # Initialize proactive tool caller lazily if tool executor is available
+                proactive_tool_caller = context.rag_components.get("proactive_tool_caller")
+                if not proactive_tool_caller and context.tool_executor:
+                    from ..rag.proactive_tool_caller import ProactiveToolCaller
+                    retrieval_engine = context.rag_components.get("retrieval_engine")
+                    embedding_manager = None
+                    if retrieval_engine:
+                        embedding_manager = retrieval_engine.embedding_manager
+                    
+                    if retrieval_engine and embedding_manager:
+                        proactive_tool_caller = ProactiveToolCaller(
+                            retrieval_engine=retrieval_engine,
+                            tool_executor=context.tool_executor,
+                            embedding_manager=embedding_manager,
+                        )
+                        context.rag_components["proactive_tool_caller"] = proactive_tool_caller
+                        logger.info("Proactive tool caller initialized")
+
+                if proactive_tool_caller:
+                    proactive_tool_results = await proactive_tool_caller.detect_interests_and_call_tools(
+                        user_input=input_text,
+                        conf_uid=context.character_config.conf_uid,
+                        history_uid=context.history_uid,
+                    )
+                    if proactive_tool_results:
+                        logger.info(f"Proactive tool results: {proactive_tool_results[:200]}...")
+                        # Inject proactive tool results into batch input
+                        from ..agent.input_types import TextData, TextSource
+                        if not batch_input.texts:
+                            batch_input.texts = []
+                        batch_input.texts.insert(0, TextData(
+                            source=TextSource.INPUT,
+                            content=f"[Proactive Information]\n{proactive_tool_results}\n[/Proactive Information]",
+                        ))
+            except Exception as e:
+                logger.warning(f"Error in proactive tool calling: {e}")
+
         try:
             # agent.chat yields Union[SentenceOutput, Dict[str, Any]]
             agent_output_stream = context.agent_engine.chat(batch_input)

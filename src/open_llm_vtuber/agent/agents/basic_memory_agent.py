@@ -249,25 +249,67 @@ class BasicMemoryAgent(AgentInterface):
 
         if input_data.images:
             image_added = False
-            for img_data in input_data.images:
-                if isinstance(img_data.data, str) and img_data.data.startswith(
-                    "data:image"
-                ):
-                    user_content.append(
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": img_data.data, "detail": "auto"},
-                        }
-                    )
-                    image_added = True
-                else:
-                    logger.error(
-                        f"Invalid image data format: {type(img_data.data)}. Skipping image."
+            logger.info(f"Processing {len(input_data.images)} image(s) for LLM")
+            for i, img_data in enumerate(input_data.images):
+                try:
+                    if isinstance(img_data.data, str):
+                        # Check if it's already a data URL
+                        if img_data.data.startswith("data:image"):
+                            user_content.append(
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": img_data.data,
+                                        "detail": "auto",
+                                    },
+                                }
+                            )
+                            image_added = True
+                            logger.debug(
+                                f"Added image {i + 1} to user content (data URL format)"
+                            )
+                        else:
+                            # Try to convert base64 to data URL
+                            logger.warning(
+                                f"Image {i + 1} data doesn't start with 'data:image', attempting conversion"
+                            )
+                            # Assume it's base64 and add prefix
+                            mime_type = (
+                                img_data.mime_type
+                                if hasattr(img_data, "mime_type")
+                                else "image/png"
+                            )
+                            data_url = f"data:{mime_type};base64,{img_data.data}"
+                            user_content.append(
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": data_url, "detail": "auto"},
+                                }
+                            )
+                            image_added = True
+                            logger.info(
+                                f"Added image {i + 1} to user content (converted to data URL)"
+                            )
+                    else:
+                        logger.error(
+                            f"Invalid image data format for image {i + 1}: {type(img_data.data)}. Expected str, got {type(img_data.data)}"
+                        )
+                except Exception as e:
+                    logger.error(f"Error processing image {i + 1}: {e}")
+                    import traceback
+
+                    logger.debug(
+                        f"Traceback for image {i + 1}:\n{traceback.format_exc()}"
                     )
 
-            if not image_added and not text_prompt:
+            if not image_added and input_data.images:
                 logger.warning(
-                    "User input contains images but none could be processed."
+                    f"User input contains {len(input_data.images)} image(s) but none could be processed. "
+                    f"Text prompt will be: '{text_prompt[:100]}...'"
+                )
+            elif image_added:
+                logger.info(
+                    f"Successfully added {sum(1 for item in user_content if item.get('type') == 'image_url')} image(s) to user content"
                 )
 
         if user_content:

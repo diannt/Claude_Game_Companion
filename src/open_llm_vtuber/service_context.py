@@ -36,6 +36,7 @@ from .config_manager import (
     read_yaml,
     validate_config,
 )
+from .utils.tts_config_utils import build_tts_config_dict
 
 
 class ServiceContext:
@@ -60,6 +61,10 @@ class ServiceContext:
         self.tool_manager: ToolManager | None = None
         self.mcp_client: MCPClient | None = None
         self.tool_executor: ToolExecutor | None = None
+
+        # RAG system components (optional)
+        self.rag_enabled: bool = False
+        self.rag_components: dict | None = None  # Will contain document_processor, retrieval_engine, session_manager, report_generator, proactive_tool_caller
 
         # the system prompt is a combination of the persona prompt and live2d expression prompt
         self.system_prompt: str = None
@@ -306,6 +311,9 @@ class ServiceContext:
             config.character_config.tts_preprocessor_config.translator_config
         )
 
+        # Initialize RAG system if enabled
+        await self.init_rag(config.rag_config)
+
         # store typed config references
         self.config = config
         self.system_config = config.system_config or self.system_config
@@ -429,7 +437,103 @@ class ServiceContext:
                 translator_config
             )
         else:
-            logger.info("Translation already initialized with the same config.")
+                logger.info("Translation already initialized with the same config.")
+
+    async def init_rag(self, rag_config) -> None:
+        """Initialize RAG system if enabled."""
+        if not rag_config or not rag_config.enabled:
+            self.rag_enabled = False
+            self.rag_components = None
+            logger.debug("RAG system disabled")
+            return
+
+        try:
+            from .rag.embedding_manager import EmbeddingManager
+            from .rag.vector_store import VectorStore
+            from .rag.document_processor import DocumentProcessor
+            from .rag.retrieval_engine import RetrievalEngine
+            from .rag.session_manager import SessionManager
+            from .rag.report_generator import ReportGenerator
+
+            # Initialize embedding manager
+            embedding_manager = EmbeddingManager(
+                base_url=rag_config.ollama.base_url,
+                embedding_model=rag_config.ollama.embedding_model,
+            )
+
+            # Check connection
+            if not await embedding_manager.check_connection():
+                logger.warning("Failed to connect to Ollama. RAG system disabled.")
+                self.rag_enabled = False
+                self.rag_components = None
+                return
+
+            # Initialize vector store
+            try:
+                vector_store = VectorStore(
+                    host=rag_config.qdrant.host,
+                    port=rag_config.qdrant.port,
+                    collection_name=rag_config.qdrant.collection_name,
+                )
+                
+                if not vector_store.check_connection():
+                    logger.warning("Failed to connect to Qdrant. RAG system disabled.")
+                    self.rag_enabled = False
+                    self.rag_components = None
+                    return
+            except ImportError:
+                logger.warning("qdrant-client not available. RAG system disabled.")
+                self.rag_enabled = False
+                self.rag_components = None
+                return
+            except Exception as e:
+                logger.warning(f"Failed to initialize Qdrant: {e}. RAG system disabled.")
+                self.rag_enabled = False
+                self.rag_components = None
+                return
+
+            # Initialize components
+            document_processor = DocumentProcessor(
+                embedding_manager=embedding_manager,
+                vector_store=vector_store,
+            )
+
+            retrieval_engine = RetrievalEngine(
+                embedding_manager=embedding_manager,
+                vector_store=vector_store,
+            )
+
+            session_manager = SessionManager()
+
+            report_generator = ReportGenerator(
+                session_manager=session_manager,
+                retrieval_engine=retrieval_engine,
+            )
+
+            # Initialize proactive tool caller if tool executor is available
+            proactive_tool_caller = None
+            # Note: tool_executor might not be initialized yet (it's initialized per-client)
+            # We'll create it lazily when needed
+            logger.debug("Proactive tool caller will be initialized when tool executor is available")
+
+            # Store components
+            self.rag_enabled = True
+            self.rag_components = {
+                "document_processor": document_processor,
+                "retrieval_engine": retrieval_engine,
+                "session_manager": session_manager,
+                "report_generator": report_generator,
+                "proactive_tool_caller": None,  # Will be set lazily
+            }
+
+            logger.info("RAG system initialized successfully")
+
+        except Exception as e:
+            import traceback
+            logger.warning(f"Failed to initialize RAG system: {e}. Continuing without RAG.")
+            logger.debug(f"RAG initialization error traceback: {traceback.format_exc()}")
+            self.rag_enabled = False
+            self.rag_components = None
 
     # ==== utils
 
@@ -518,6 +622,10 @@ class ServiceContext:
                     f"New character config: {self.character_config.model_dump()}"
                 )
 
+                # Prepare TTS configuration
+                tts_config = self.character_config.tts_config
+                tts_config_dict = build_tts_config_dict(tts_config)
+
                 # Send responses to client
                 await websocket.send_text(
                     json.dumps(
@@ -526,8 +634,14 @@ class ServiceContext:
                             "model_info": self.live2d_model.model_info,
                             "conf_name": self.character_config.conf_name,
                             "conf_uid": self.character_config.conf_uid,
+                            "tts_config": tts_config_dict,  # Include TTS config
                         }
                     )
+                )
+
+                # Also send TTS config separately for backward compatibility
+                await websocket.send_text(
+                    json.dumps({"type": "tts-config", "config": tts_config_dict})
                 )
 
                 await websocket.send_text(

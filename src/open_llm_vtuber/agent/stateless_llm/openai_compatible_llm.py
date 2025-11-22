@@ -95,6 +95,22 @@ class AsyncLLM(StatelessLLMInterface):
                 ]
             logger.debug(f"Messages: {messages_with_system}")
 
+            # Log image information for vision models
+            image_count = 0
+            for msg in messages_with_system:
+                if isinstance(msg.get("content"), list):
+                    for item in msg.get("content", []):
+                        if item.get("type") == "image_url":
+                            image_count += 1
+                            image_url = item.get("image_url", {}).get("url", "")
+                            if image_url:
+                                # Log first 100 chars of image data for debugging
+                                logger.info(
+                                    f"Image {image_count} in message: {image_url[:100]}..."
+                                )
+            if image_count > 0:
+                logger.info(f"Total images in messages: {image_count}")
+
             available_tools = tools if self.support_tools else NOT_GIVEN
 
             stream: AsyncStream[

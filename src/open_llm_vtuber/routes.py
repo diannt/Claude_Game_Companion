@@ -138,6 +138,64 @@ def init_webtool_routes(default_context_cache: ServiceContext) -> APIRouter:
             }
         )
 
+    @router.get("/tts/edge-tts/voices")
+    async def get_edge_tts_voices():
+        """
+        Get list of available Edge TTS voices.
+        """
+        try:
+            import edge_tts
+
+            voices = await edge_tts.list_voices()
+            # Format voices for frontend
+            voices_list = []
+            for voice in voices:
+                voices_list.append(
+                    {
+                        "name": voice.get("Name", ""),
+                        "short_name": voice.get("ShortName", ""),
+                        "gender": voice.get("Gender", ""),
+                        "locale": voice.get("Locale", ""),
+                    }
+                )
+            return JSONResponse(
+                {
+                    "type": "edge-tts-voices",
+                    "voices": voices_list,
+                    "count": len(voices_list),
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error fetching Edge TTS voices: {e}")
+            return JSONResponse(
+                {"error": f"Failed to fetch Edge TTS voices: {str(e)}"}, status_code=500
+            )
+
+    @router.get("/tts/config")
+    async def get_tts_config():
+        """
+        Get current TTS configuration.
+        """
+        try:
+            tts_config = default_context_cache.character_config.tts_config
+            config_dict = {
+                "tts_model": tts_config.tts_model,
+            }
+            # Add model-specific config
+            if tts_config.tts_model == "edge_tts" and tts_config.edge_tts:
+                config_dict["edge_tts"] = {
+                    "voice": tts_config.edge_tts.voice,
+                }
+            elif tts_config.tts_model == "azure_tts" and tts_config.azure_tts:
+                config_dict["azure_tts"] = tts_config.azure_tts.model_dump()
+            # Add other TTS configs as needed
+            return JSONResponse(config_dict)
+        except Exception as e:
+            logger.error(f"Error fetching TTS config: {e}")
+            return JSONResponse(
+                {"error": f"Failed to fetch TTS config: {str(e)}"}, status_code=500
+            )
+
     @router.post("/asr")
     async def transcribe_audio(file: UploadFile = File(...)):
         """

@@ -22,11 +22,25 @@ from .chat_history_manager import (
     get_history_list,
 )
 from .config_manager.utils import scan_config_alts_directory, scan_bg_directory
+from .utils.tts_config_utils import build_tts_config_dict
 from .conversations.conversation_handler import (
     handle_conversation_trigger,
     handle_group_interrupt,
     handle_individual_interrupt,
 )
+
+
+def _build_tts_config_dict(tts_config) -> dict:
+    """
+    Build TTS configuration dictionary from TTSConfig object.
+
+    Args:
+        tts_config: TTSConfig instance
+
+    Returns:
+        dict: TTS configuration dictionary
+    """
+    return build_tts_config_dict(tts_config)
 
 
 class MessageType(Enum):
@@ -94,6 +108,7 @@ class WebSocketHandler:
             "fetch-backgrounds": self._handle_fetch_backgrounds,
             "audio-play-start": self._handle_audio_play_start,
             "request-init-config": self._handle_init_config_request,
+            "fetch-tts-config": self._handle_fetch_tts_config,
             "heartbeat": self._handle_heartbeat,
         }
 
@@ -157,6 +172,11 @@ class WebSocketHandler:
             json.dumps({"type": "full-text", "text": "Connection established"})
         )
 
+        # Prepare TTS configuration
+        tts_config = session_service_context.character_config.tts_config
+        tts_config_dict = _build_tts_config_dict(tts_config)
+
+        # Send model and config with TTS config included
         await websocket.send_text(
             json.dumps(
                 {
@@ -165,8 +185,14 @@ class WebSocketHandler:
                     "conf_name": session_service_context.character_config.conf_name,
                     "conf_uid": session_service_context.character_config.conf_uid,
                     "client_uid": client_uid,
+                    "tts_config": tts_config_dict,  # Include TTS config in main message
                 }
             )
+        )
+
+        # Also send TTS config separately for backward compatibility
+        await websocket.send_text(
+            json.dumps({"type": "tts-config", "config": tts_config_dict})
         )
 
         # Send initial group status
@@ -600,6 +626,21 @@ class WebSocketHandler:
                     "client_uid": client_uid,
                 }
             )
+        )
+
+    async def _handle_fetch_tts_config(
+        self, websocket: WebSocket, client_uid: str, data: WSMessage
+    ) -> None:
+        """Handle request for TTS configuration"""
+        context = self.client_contexts.get(client_uid)
+        if not context:
+            context = self.default_context_cache
+
+        tts_config = context.character_config.tts_config
+        tts_config_dict = _build_tts_config_dict(tts_config)
+
+        await websocket.send_text(
+            json.dumps({"type": "tts-config", "config": tts_config_dict})
         )
 
     async def _handle_heartbeat(

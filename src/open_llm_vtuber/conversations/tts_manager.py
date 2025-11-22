@@ -140,16 +140,61 @@ class TTSTaskManager:
         audio_file_path = None
         try:
             audio_file_path = await self._generate_audio(tts_engine, tts_text)
+
+            # Check if file was generated successfully
+            if not audio_file_path:
+                logger.warning(
+                    f"TTS generation returned None for text: {tts_text[:50]}..."
+                )
+                payload = prepare_audio_payload(
+                    audio_path=None,
+                    display_text=display_text,
+                    actions=actions,
+                )
+                await self._payload_queue.put((payload, sequence_number))
+                return
+
+            # Verify file exists before processing
+            import os
+
+            if not os.path.exists(audio_file_path):
+                logger.error(f"Generated audio file does not exist: {audio_file_path}")
+                payload = prepare_audio_payload(
+                    audio_path=None,
+                    display_text=display_text,
+                    actions=actions,
+                )
+                await self._payload_queue.put((payload, sequence_number))
+                return
+
+            # Normalize path for cross-platform compatibility
+            audio_file_path = os.path.normpath(audio_file_path)
+
             payload = prepare_audio_payload(
                 audio_path=audio_file_path,
                 display_text=display_text,
                 actions=actions,
+            )
+            # Debug: Log audio payload info
+            has_audio = payload.get("audio") is not None and len(payload.get("audio", "")) > 0
+            logger.debug(
+                f"Audio payload prepared: has_audio={has_audio}, "
+                f"audio_len={len(payload.get('audio', '')) if payload.get('audio') else 0}, "
+                f"volumes_len={len(payload.get('volumes', []))}"
             )
             # Queue the payload with its sequence number
             await self._payload_queue.put((payload, sequence_number))
 
         except Exception as e:
             logger.error(f"Error preparing audio payload: {e}")
+            import traceback
+
+            logger.debug(traceback.format_exc())
+            # Log the exception details for debugging
+            logger.error(
+                f"Failed to prepare audio payload for text: '{tts_text[:50]}...'. "
+                f"Exception: {type(e).__name__}: {e}"
+            )
             # Queue silent payload for error case
             payload = prepare_audio_payload(
                 audio_path=None,
@@ -160,8 +205,11 @@ class TTSTaskManager:
 
         finally:
             if audio_file_path:
-                tts_engine.remove_file(audio_file_path)
-                logger.debug("Audio cache file cleaned.")
+                import os
+
+                if os.path.exists(audio_file_path):
+                    tts_engine.remove_file(audio_file_path)
+                    logger.debug("Audio cache file cleaned.")
 
     async def _generate_audio(self, tts_engine: TTSInterface, text: str) -> str:
         """Generate audio file from text"""

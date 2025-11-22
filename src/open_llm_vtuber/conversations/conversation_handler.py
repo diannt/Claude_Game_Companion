@@ -69,6 +69,13 @@ async def handle_conversation_trigger(
         received_data_buffers[client_uid] = np.array([])
 
     images = data.get("images")
+    if images:
+        logger.info(f"Received {len(images)} image(s) with message type: {msg_type}")
+        logger.debug(
+            f"Images data: {images[:100] if isinstance(images, list) else str(images)[:200]}..."
+        )
+    else:
+        logger.debug(f"No images in message type: {msg_type}")
     session_emoji = np.random.choice(EMOJI_LIST)
 
     group = chat_group_manager.get_client_group(client_uid)
