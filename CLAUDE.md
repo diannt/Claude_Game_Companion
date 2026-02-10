@@ -1,156 +1,107 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with this repository.
 
-## Project Overview
+## Commands
 
-Open-LLM-VTuber is a voice-interactive AI companion with Live2D avatar support that runs completely offline. It's a cross-platform Python application supporting real-time voice conversations, visual perception, and Live2D character animations. The project features modular architecture for LLM, ASR (Automatic Speech Recognition), TTS (Text-to-Speech), and other components.
+- **Install**: `uv sync`
+- **Run server**: `uv run run_server.py` (`--verbose` for debug logging)
+- **Lint**: `ruff check .`
+- **Format**: `ruff format .`
+- **Pre-commit**: `pre-commit run --all-files`
+- **Simulation test**: `uv run tests/simulation.py`
 
-## Essential Commands
+## Config & Secrets
 
-### Development Setup
-- **Install dependencies**: `uv sync` (uses uv package manager)
-- **Run server**: `uv run run_server.py`
-- **Run with verbose logging**: `uv run run_server.py --verbose`
-- **Update project**: `uv run upgrade.py`
+- **User config**: `conf.yaml` (generated from `config_templates/conf.default.yaml` on first run)
+- **Character overrides**: `characters/*.yaml`
+- **Secrets**: `.env` — `QDRANT_API_KEY`, `QDRANT_CLUSTER_ENDPOINT`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`
+- **Sessions**: `sessions/{user_id}/{session_id}/screenshots/` — per-user working dirs
 
-### Code Quality
-- **Lint code**: `ruff check .`
-- **Format code**: `ruff format .`
-- **Run pre-commit hooks**: `pre-commit run --all-files`
+## Architecture
 
-### Server Configuration
-- **Main config file**: `conf.yaml` (user configuration)
-- **Default configs**: `config_templates/conf.default.yaml` and `config_templates/conf.ZH.default.yaml`
-- **Character configs**: `characters/` directory (YAML files)
+### LLM Backend — WSL Claude Subprocess (sole provider)
 
-## Architecture Overview
+All inference runs through `claude -p` subprocess. No API keys. No remote LLM calls.
 
-### Core Components
+- Implementation: `src/open_llm_vtuber/agent/stateless_llm/wsl_claude.py` → `WSLClaudeLLM`
+- `WSLClaudeLLM.chat_completion()` builds a single prompt string, runs `subprocess.run(["claude", "-p", prompt], cwd=session_dir)`, parses JSON stdout, yields `text` field
+- System prompt enforces JSON output: `{"text": "…[emotion]…", "emotion": "…", "action": "none"}`
+- Factory (`stateless_llm_factory.py`) **always** returns `WSLClaudeLLM` regardless of `conf.yaml`
+- Retry logic: 3 attempts with 1-second back-off; graceful fallback to raw output on JSON parse failure
 
-**WebSocket Server** (`src/open_llm_vtuber/server.py`):
-- FastAPI-based server handling WebSocket connections
-- Serves frontend, Live2D models, and static assets
-- Supports both main client and proxy WebSocket endpoints
+### Conversation Pipeline
 
-**Service Context** (`src/open_llm_vtuber/service_context.py`):
-- Central dependency injection container
-- Manages all engines (LLM, ASR, TTS, VAD, etc.)
-- Each WebSocket connection gets its own service context instance
+```
+WebSocket → WebSocketHandler → ConversationHandler → SingleConversation
+  → BasicMemoryAgent.chat() → WSLClaudeLLM.chat_completion()
+  → sentence segmentation → TTSTaskManager → audio WebSocket payload → frontend
+```
 
-**WebSocket Handler** (`src/open_llm_vtuber/websocket_handler.py`):
-- Routes WebSocket messages to appropriate handlers
-- Manages client connections, groups, and conversation state
-- Handles audio data, conversation triggers, and Live2D interactions
+`BasicMemoryAgent` (`agent/agents/basic_memory_agent.py`) wraps `WSLClaudeLLM`, maintains in-memory message history, handles Live2D expression extraction from bracketed tags (e.g., `[smile]`).
 
-### Modular Engine System
+### Game Knowledge — Qdrant RAG
 
-The project uses a factory pattern for all AI engines:
+- Module: `src/open_llm_vtuber/modules/knowledge_base.py` → `KnowledgeBase`
+- Collection `game_knowledge`: 384-dim Cosine, Qdrant cloud inference via `sentence-transformers/all-minilm-l6-v2`
+- `get_game_context(game_name, current_state, screenshot_path?)`:
+  - Score ≥ 0.8 hit → returns `[KNOWN_TACTICS]: {tactic}`
+  - Miss → runs dedicated `claude -p` research subprocess, ingests tactic + best_practices to Qdrant, returns tactic
+- Context injected into system prompt via `service_context.construct_system_prompt()`
 
-**Agent System** (`src/open_llm_vtuber/agent/`):
-- `agent_factory.py` - Factory for creating different agent types
-- `agents/` - Various agent implementations (basic_memory, hume_ai, letta, mem0)
-- `stateless_llm/` - Stateless LLM implementations (Claude, OpenAI, Ollama, etc.)
+### Vision Loop — Proactive Screen Analysis
 
-**ASR Engines** (`src/open_llm_vtuber/asr/`):
-- Support for multiple ASR backends: Sherpa-ONNX, FunASR, Faster-Whisper, OpenAI Whisper, etc.
-- Factory pattern for engine selection based on configuration
+- Module: `src/open_llm_vtuber/modules/vision_loop.py` → `ScreenWatcher` (daemon thread)
+- Every 15–25 s: `pyautogui.screenshot()` → save to `sessions/` → pHash comparison
+- Hamming distance < 5 → AFK, skip
+- On screen change: calls `knowledge_base.get_game_context()` → fires `ai-speak-signal` back through WebSocket handler
 
-**TTS Engines** (`src/open_llm_vtuber/tts/`):
-- Multiple TTS options: Azure TTS, Edge TTS, MeloTTS, CosyVoice, GPT-SoVITS, etc.
-- Configurable voice cloning and multi-language support
+### Supabase Memory Layer
 
-**VAD (Voice Activity Detection)** (`src/open_llm_vtuber/vad/`):
-- Silero VAD for detecting speech activity
-- Essential for voice interruption without feedback loops
+- Module: `src/open_llm_vtuber/integrations/memory_manager.py` → `MemoryManager`
+- Tables: `user_history` (advice log), `chat_logs` (session dumps), `long_term_profile` (persistent preferences)
+- `long_term_profile` + recent `user_history` injected into system prompt on session start
+- Advice saved after each bot response; chat log saved on disconnect
 
-### Configuration Management
+### Service Context — Central DI Hub
 
-**Config System** (`src/open_llm_vtuber/config_manager/`):
-- Type-safe configuration classes for each component
-- Automatic validation and loading from YAML files
-- Support for multiple character configurations and config switching
+`src/open_llm_vtuber/service_context.py` holds all engine references per session:
+- `agent_engine`, `asr_engine`, `tts_engine`, `vad_engine`
+- `knowledge_base` (Qdrant)
+- `memory_manager` (Supabase)
+- `system_prompt` — assembled by `construct_system_prompt()` which appends tool prompts, Live2D emotion map, game context, and long-term profile
 
-### Conversation System
+### Player2 Publication Pipeline
 
-**Conversation Handling** (`src/open_llm_vtuber/conversations/`):
-- `conversation_handler.py` - Main conversation orchestration
-- `single_conversation.py` - Individual user conversations
-- `group_conversation.py` - Multi-user group conversations
-- `tts_manager.py` - Audio streaming and TTS management
+- Specs: `docs/p2_platform_specs.md`
+- Manifest generator: `src/open_llm_vtuber/publishing/generate_manifest.py` → `player2_manifest.json`
+- Platform client: `src/open_llm_vtuber/publishing/player2_platform.py`
 
-### MCP (Model Context Protocol) Integration
+## Key Files
 
-**MCP System** (`src/open_llm_vtuber/mcpp/`):
-- Tool execution and server registry
-- JSON detection and parameter extraction
-- Integration with various MCP servers for extended functionality
+| Path | Role |
+|------|------|
+| `src/.../agent/stateless_llm/wsl_claude.py` | Only LLM provider |
+| `src/.../agent/stateless_llm_factory.py` | Force-routes all LLM to wsl_claude |
+| `src/.../agent/agent_factory.py` | Creates BasicMemoryAgent with wsl_claude |
+| `src/.../modules/knowledge_base.py` | Qdrant RAG + research subprocess |
+| `src/.../modules/vision_loop.py` | Screen watcher + proactive triggers |
+| `src/.../integrations/memory_manager.py` | Supabase tables CRUD |
+| `src/.../service_context.py` | DI container + system prompt assembly |
+| `src/.../conversations/single_conversation.py` | Pipeline orchestration + advice saving |
+| `src/.../websocket_handler.py` | WS routing, session init, vision loop start |
+| `config_templates/conf.default.yaml` | Source of truth for default config |
 
-## Key Development Patterns
+## Adding Engines
 
-### Error Handling
-The codebase uses the missing `_cleanup_failed_connection` method pattern - when implementing new WebSocket handlers, ensure proper cleanup methods are implemented.
+Follow the existing factory pattern:
+1. Implement interface (`asr_interface.py`, `tts_interface.py`)
+2. Register in factory (`asr_factory.py`, `tts_factory.py`)
+3. Add config class in `config_manager/`
+4. Update `config_templates/conf.default.yaml`
 
-### Live2D Integration
-- Models stored in `live2d-models/` directory
-- Each model has its own `.model3.json` configuration
-- Expression and motion control through WebSocket messages
+**Do not add new LLM providers** — `WSLClaudeLLM` is the only permitted LLM backend.
 
-### Audio Processing
-- Real-time audio streaming through WebSocket
-- Voice interruption support without headphones
-- Multi-format audio support with proper codec handling
+## WebSocket Messages
 
-### Multi-language Support
-- Character configurations support multiple languages
-- TTS translation capabilities (speak in different language than input)
-- I18n system for UI elements
-
-## Important File Locations
-
-- **Entry point**: `run_server.py`
-- **Main server**: `src/open_llm_vtuber/server.py`
-- **WebSocket routing**: `src/open_llm_vtuber/routes.py`
-- **Configuration**: `conf.yaml` (user), `config_templates/` (defaults)
-- **Frontend**: `frontend/` (Git submodule)
-- **Live2D models**: `live2d-models/`
-- **Character definitions**: `characters/`
-- **Chat history**: `chat_history/`
-- **Cache**: `cache/` (audio files, temporary data)
-
-## Development Guidelines
-
-### Adding New Engines
-1. Create interface in appropriate directory (e.g., `asr_interface.py`)
-2. Implement concrete class following existing patterns
-3. Add to factory class (e.g., `asr_factory.py`)
-4. Update configuration classes in `config_manager/`
-5. Add configuration options to default YAML files
-
-### WebSocket Message Handling
-1. Add message type to `MessageType` enum in `websocket_handler.py`
-2. Create handler method following `_handle_*` pattern
-3. Register in `_init_message_handlers()` dictionary
-4. Ensure proper error handling and client response
-
-### Configuration Changes
-- Always update both default config templates
-- Maintain backward compatibility when possible
-- Use the upgrade system for breaking changes
-- Validate configurations in respective config manager classes
-
-## Testing and Quality Assurance
-
-The project uses:
-- **Ruff** for linting and formatting (configured in `pyproject.toml`)
-- **Pre-commit hooks** for automated quality checks
-- **GitHub Actions** for CI/CD (`.github/workflows/`)
-- Manual testing through web interface and desktop client
-
-## Package Management
-
-Uses **uv** (modern Python package manager):
-- Dependencies defined in `pyproject.toml`
-- Lock file: `uv.lock`
-- Generated requirements: `requirements.txt` (auto-generated)
-- Optional dependencies for specific features (e.g., `bilibili` extra)
+To add a new message type: add to `MessageType` enum in `websocket_handler.py`, create `_handle_*` method, register in `_init_message_handlers()`.

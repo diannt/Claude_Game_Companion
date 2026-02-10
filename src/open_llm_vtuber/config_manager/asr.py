@@ -9,7 +9,7 @@ class AzureASRConfig(I18nMixin):
 
     api_key: str = Field(..., alias="api_key")
     region: str = Field(..., alias="region")
-    languages: list[str] = Field(["en-US", "zh-CN"], alias="languages")
+    languages: list[str] = Field(["en-US"], alias="languages")
 
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
         "api_key": Description(
@@ -19,8 +19,8 @@ class AzureASRConfig(I18nMixin):
             en="Azure region (e.g., eastus)", zh="Azure 区域（如 eastus)"
         ),
         "languages": Description(
-            en="List of languages to detect (e.g., ['en-US', 'zh-CN'])",
-            zh="要检测的语言列表（如 ['en-US', 'zh-CN'])",
+            en="List of languages to detect (e.g., ['en-US', 'de-DE'])",
+            zh="要检测的语言列表（如 ['en-US', 'de-DE'])",
         ),
     }
 
@@ -112,49 +112,6 @@ class WhisperConfig(I18nMixin):
         "prompt": Description(
             en="An initial prompt to provide context or guide the transcription. Language of the prompt should match the audio language.",
             zh="用于提供上下文或引导转录的初始提示词。提示词应与音频语言匹配。",
-        ),
-    }
-
-
-class FunASRConfig(I18nMixin):
-    """Configuration for FunASR."""
-
-    model_name: str = Field("iic/SenseVoiceSmall", alias="model_name")
-    vad_model: str = Field("fsmn-vad", alias="vad_model")
-    punc_model: str = Field("ct-punc", alias="punc_model")
-    device: Literal["cpu", "cuda"] = Field("cpu", alias="device")
-    disable_update: bool = Field(True, alias="disable_update")
-    ncpu: int = Field(4, alias="ncpu")
-    hub: Literal["ms", "hf"] = Field("ms", alias="hub")
-    use_itn: bool = Field(False, alias="use_itn")
-    language: str = Field("auto", alias="language")
-
-    DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
-        "model_name": Description(en="Name of the FunASR model", zh="FunASR 模型名称"),
-        "vad_model": Description(
-            en="Voice Activity Detection model", zh="语音活动检测模型"
-        ),
-        "punc_model": Description(en="Punctuation model", zh="标点符号模型"),
-        "device": Description(
-            en="Device to use for inference (cpu or cuda)", zh="推理设备（cpu 或 cuda）"
-        ),
-        "disable_update": Description(
-            en="Disable checking for FunASR updates on launch",
-            zh="启动时禁用 FunASR 更新检查",
-        ),
-        "ncpu": Description(
-            en="Number of CPU threads for internal operations",
-            zh="内部操作的 CPU 线程数",
-        ),
-        "hub": Description(
-            en="Model hub to use (ms for ModelScope, hf for Hugging Face)",
-            zh="使用的模型仓库（ms 为 ModelScope，hf 为 Hugging Face）",
-        ),
-        "use_itn": Description(
-            en="Enable inverse text normalization", zh="启用反向文本归一化"
-        ),
-        "language": Description(
-            en="Language code (e.g., auto, zh, en)", zh="语言代码（如 auto、zh、en）"
         ),
     }
 
@@ -315,7 +272,6 @@ class ASRConfig(I18nMixin):
         "whisper_cpp",
         "whisper",
         "azure_asr",
-        "fun_asr",
         "groq_whisper_asr",
         "sherpa_onnx_asr",
     ] = Field(..., alias="asr_model")
@@ -323,7 +279,6 @@ class ASRConfig(I18nMixin):
     faster_whisper: Optional[FasterWhisperConfig] = Field(None, alias="faster_whisper")
     whisper_cpp: Optional[WhisperCPPConfig] = Field(None, alias="whisper_cpp")
     whisper: Optional[WhisperConfig] = Field(None, alias="whisper")
-    fun_asr: Optional[FunASRConfig] = Field(None, alias="fun_asr")
     groq_whisper_asr: Optional[GroqWhisperASRConfig] = Field(
         None, alias="groq_whisper_asr"
     )
@@ -343,7 +298,6 @@ class ASRConfig(I18nMixin):
             en="Configuration for WhisperCPP", zh="WhisperCPP 配置"
         ),
         "whisper": Description(en="Configuration for Whisper", zh="Whisper 配置"),
-        "fun_asr": Description(en="Configuration for FunASR", zh="FunASR 配置"),
         "groq_whisper_asr": Description(
             en="Configuration for Groq Whisper ASR", zh="Groq Whisper ASR 配置"
         ),
@@ -365,8 +319,6 @@ class ASRConfig(I18nMixin):
             values.whisper_cpp.model_validate(values.whisper_cpp.model_dump())
         elif asr_model == "Whisper" and values.whisper is not None:
             values.whisper.model_validate(values.whisper.model_dump())
-        elif asr_model == "FunASR" and values.fun_asr is not None:
-            values.fun_asr.model_validate(values.fun_asr.model_dump())
         elif asr_model == "GroqWhisperASR" and values.groq_whisper_asr is not None:
             values.groq_whisper_asr.model_validate(values.groq_whisper_asr.model_dump())
         elif asr_model == "SherpaOnnxASR" and values.sherpa_onnx_asr is not None:

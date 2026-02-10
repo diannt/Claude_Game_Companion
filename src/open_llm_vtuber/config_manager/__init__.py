@@ -9,11 +9,12 @@ and utility functions for loading/saving configurations.
 from .main import Config
 from .system import SystemConfig
 from .character import CharacterConfig
-from .live import LiveConfig, BiliBiliLiveConfig
+from .live import LiveConfig
 from .stateless_llm import (
     OpenAICompatibleConfig,
     ClaudeConfig,
     LlamaCppConfig,
+    WSLClaudeConfig,
 )
 from .asr import (
     ASRConfig,
@@ -21,7 +22,6 @@ from .asr import (
     FasterWhisperConfig,
     WhisperCPPConfig,
     WhisperConfig,
-    FunASRConfig,
     SherpaOnnxASRConfig,
     GroqWhisperASRConfig,
 )
@@ -30,7 +30,6 @@ from .tts import (
     AzureTTSConfig,
     BarkTTSConfig,
     EdgeTTSConfig,
-    CosyvoiceTTSConfig,
     MeloTTSConfig,
     CoquiTTSConfig,
     XTTSConfig,
@@ -70,11 +69,11 @@ __all__ = [
     "SystemConfig",
     "CharacterConfig",
     "LiveConfig",
-    "BiliBiliLiveConfig",
     # LLM related classes
     "OpenAICompatibleConfig",
     "ClaudeConfig",
     "LlamaCppConfig",
+    "WSLClaudeConfig",
     # Agent related classes
     "AgentConfig",
     "AgentSettings",
@@ -90,7 +89,6 @@ __all__ = [
     "FasterWhisperConfig",
     "WhisperCPPConfig",
     "WhisperConfig",
-    "FunASRConfig",
     "SherpaOnnxASRConfig",
     "GroqWhisperASRConfig",
     # TTS related classes
@@ -98,7 +96,6 @@ __all__ = [
     "AzureTTSConfig",
     "BarkTTSConfig",
     "EdgeTTSConfig",
-    "CosyvoiceTTSConfig",
     "MeloTTSConfig",
     "CoquiTTSConfig",
     "XTTSConfig",

@@ -91,20 +91,12 @@ jobs:
           find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
           find . -type d -name ".venv" -exec rm -rf {} + 2>/dev/null || true
 
-      # Create Chinese version
-      - name: Create Chinese version
+      # Create release package
+      - name: Create release package
         run: |
-          echo "Creating Chinese version..."
-          cp config_templates/conf.ZH.default.yaml conf.yaml
-          zip -r Open-LLM-VTuber-v${{ env.VERSION }}-zh.zip . -x "*.zip"
-          rm conf.yaml
-
-      # Create English version
-      - name: Create English version
-        run: |
-          echo "Creating English version..."
+          echo "Creating release package..."
           cp config_templates/conf.default.yaml conf.yaml
-          zip -r Open-LLM-VTuber-v${{ env.VERSION }}-en.zip . -x "*.zip"
+          zip -r Open-LLM-VTuber-v${{ env.VERSION }}.zip . -x "*.zip"
           rm conf.yaml
 
       # Get latest Electron app
