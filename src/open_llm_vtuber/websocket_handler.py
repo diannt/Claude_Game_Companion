@@ -3,10 +3,12 @@ from fastapi import WebSocket, WebSocketDisconnect
 import asyncio
 import json
 from enum import Enum
+from pathlib import Path
 import numpy as np
 from loguru import logger
 
 from .service_context import ServiceContext
+from .modules.vision_loop import ScreenWatcher
 from .chat_group import (
     ChatGroupManager,
     handle_group_operation,
@@ -69,6 +71,7 @@ class WebSocketHandler:
         self.current_conversation_tasks: Dict[str, Optional[asyncio.Task]] = {}
         self.default_context_cache = default_context_cache
         self.received_data_buffers: Dict[str, np.ndarray] = {}
+        self.screen_watchers: Dict[str, ScreenWatcher] = {}
 
         # Message handlers mapping
         self._message_handlers = self._init_message_handlers()
@@ -95,6 +98,7 @@ class WebSocketHandler:
             "audio-play-start": self._handle_audio_play_start,
             "request-init-config": self._handle_init_config_request,
             "heartbeat": self._handle_heartbeat,
+            "inject-game-context": self._handle_inject_game_context,
         }
 
     async def handle_new_connection(
@@ -138,13 +142,40 @@ class WebSocketHandler:
         client_uid: str,
         session_service_context: ServiceContext,
     ):
-        """Store client data and initialize group status"""
+        """Store client data, initialize group status, and start vision loop."""
         self.client_connections[client_uid] = websocket
         self.client_contexts[client_uid] = session_service_context
         self.received_data_buffers[client_uid] = np.array([])
 
         self.chat_group_manager.client_group_map[client_uid] = ""
         await self.send_group_update(websocket, client_uid)
+
+        # Start proactive screen watcher (Phase 3)
+        if session_service_context.knowledge_base is not None:
+            try:
+                loop = asyncio.get_event_loop()
+                session_dir = Path(f"sessions/{client_uid}")
+
+                # trigger_fn routes game context through the AI conversation pipeline
+                async def vision_trigger(context_text: str) -> None:
+                    await self._handle_conversation_trigger(
+                        websocket,
+                        client_uid,
+                        {"type": "ai-speak-signal", "text": context_text},
+                    )
+
+                watcher = ScreenWatcher(
+                    client_uid=client_uid,
+                    session_dir=session_dir,
+                    knowledge_base=session_service_context.knowledge_base,
+                    trigger_fn=vision_trigger,
+                    event_loop=loop,
+                )
+                watcher.start()
+                self.screen_watchers[client_uid] = watcher
+                logger.info(f"ScreenWatcher started for {client_uid}")
+            except Exception as exc:
+                logger.warning(f"ScreenWatcher start failed: {exc}")
 
     async def _send_initial_messages(
         self,
@@ -198,7 +229,10 @@ class WebSocketHandler:
             tool_adapter=self.default_context_cache.tool_adapter,
             send_text=send_text,
             client_uid=client_uid,
+            knowledge_base=self.default_context_cache.knowledge_base,
         )
+        # Copy the base system prompt so context injection has a clean base to work from
+        session_service_context.system_prompt = self.default_context_cache.system_prompt
         return session_service_context
 
     async def handle_websocket_communication(
@@ -296,6 +330,11 @@ class WebSocketHandler:
             client_connections=self.client_connections,
             send_group_update=self.send_group_update,
         )
+
+        # Stop vision loop (Phase 3)
+        watcher = self.screen_watchers.pop(client_uid, None)
+        if watcher:
+            watcher.stop()
 
         # Clean up other client data
         self.client_connections.pop(client_uid, None)
@@ -514,6 +553,33 @@ class WebSocketHandler:
         self, websocket: WebSocket, client_uid: str, data: WSMessage
     ) -> None:
         """Handle triggers that start a conversation"""
+        msg_type = data.get("type", "")
+
+        # Suppress proactive vision-loop triggers while bot is actively speaking.
+        # User inputs (text-input, mic-audio-end) are still allowed through so the
+        # user can always interact; only autonomous ai-speak-signals are blocked.
+        if msg_type == "ai-speak-signal":
+            task = self.current_conversation_tasks.get(client_uid)
+            if task and not task.done():
+                logger.debug(
+                    f"ai-speak-signal suppressed — conversation in progress for {client_uid}"
+                )
+                return
+
+        # Refresh agent system prompt with latest game context (Phase 2/3)
+        ctx = self.client_contexts.get(client_uid)
+        if ctx and ctx.knowledge_base and ctx.knowledge_base.current_game_context:
+            agent = ctx.agent_engine
+            if agent:
+                # Use ctx.system_prompt if set; otherwise fall back to agent's current _system.
+                # Strip any previously injected [GAME CONTEXT] block first.
+                base = ctx.system_prompt or getattr(agent, "_system", "") or ""
+                if "\n\n[GAME CONTEXT]" in base:
+                    base = base.split("\n\n[GAME CONTEXT]")[0]
+                game_ctx = ctx.knowledge_base.current_game_context
+                agent.set_system(base + f"\n\n[GAME CONTEXT]\n{game_ctx}")
+                logger.debug(f"Game context injected for {client_uid} ({len(game_ctx)} chars)")
+
         await handle_conversation_trigger(
             msg_type=data.get("type", ""),
             data=data,
@@ -610,3 +676,48 @@ class WebSocketHandler:
             await websocket.send_json({"type": "heartbeat-ack"})
         except Exception as e:
             logger.error(f"Error sending heartbeat acknowledgment: {e}")
+
+    async def _handle_inject_game_context(
+        self, websocket: WebSocket, client_uid: str, data: WSMessage
+    ) -> None:
+        """
+        Dev/test endpoint: trigger KB lookup and inject game context into this session.
+
+        Expected payload:
+            {"type": "inject-game-context",
+             "game_name": "Elden Ring",
+             "current_state": "fighting Margit",
+             "screenshot_path": "tests/data/elden1.jpg"}
+        """
+        ctx = self.client_contexts.get(client_uid)
+        if not ctx or not ctx.knowledge_base:
+            await websocket.send_json(
+                {"type": "game-context-result", "status": "error", "message": "KB not available"}
+            )
+            return
+
+        game_name = data.get("game_name", "unknown")
+        current_state = data.get("current_state", "playing")
+        screenshot_path = data.get("screenshot_path")
+
+        logger.info(f"inject-game-context: game={game_name} state={current_state}")
+        try:
+            context_text = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: ctx.knowledge_base.get_game_context(
+                    game_name, current_state, screenshot_path
+                ),
+            )
+            await websocket.send_json(
+                {
+                    "type": "game-context-result",
+                    "status": "ok",
+                    "context": context_text,
+                    "current_game_context": ctx.knowledge_base.current_game_context,
+                }
+            )
+        except Exception as exc:
+            logger.error(f"inject-game-context error: {exc}")
+            await websocket.send_json(
+                {"type": "game-context-result", "status": "error", "message": str(exc)}
+            )
