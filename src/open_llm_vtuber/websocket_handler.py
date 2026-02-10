@@ -336,6 +336,27 @@ class WebSocketHandler:
         if watcher:
             watcher.stop()
 
+        # Save session chat log to Supabase on disconnect (Phase 4)
+        ctx = self.client_contexts.get(client_uid)
+        if ctx and ctx.memory_manager and ctx.agent_engine:
+            try:
+                history = []
+                if hasattr(ctx.agent_engine, "memory") and ctx.agent_engine.memory:
+                    history = [
+                        {"role": m.get("role", ""), "content": m.get("content", "")}
+                        for m in ctx.agent_engine.memory
+                        if isinstance(m, dict)
+                    ]
+                session_id = ctx.history_uid or client_uid
+                ctx.memory_manager.save_chat_log(
+                    session_id=session_id,
+                    chat_history=history,
+                    chat_summary=f"Session ended. {len(history)} messages.",
+                )
+                logger.info(f"Chat log saved for {client_uid} ({len(history)} messages)")
+            except Exception as exc:
+                logger.warning(f"save_chat_log on disconnect failed: {exc}")
+
         # Clean up other client data
         self.client_connections.pop(client_uid, None)
         self.client_contexts.pop(client_uid, None)

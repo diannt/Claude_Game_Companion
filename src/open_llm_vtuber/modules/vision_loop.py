@@ -196,8 +196,12 @@ class ScreenWatcher:
             return
 
         try:
+            # Reuse the previously identified game name so Qdrant can return a
+            # cached hit; falls back to "unknown" on first-ever capture so that
+            # Claude visually identifies the game from the screenshot.
+            game_name = self._kb.current_game_name or "unknown"
             context = self._kb.get_game_context(
-                game_name="unknown",
+                game_name=game_name,
                 current_state="active gameplay",
                 screenshot_path=str(screenshot_path),
             )

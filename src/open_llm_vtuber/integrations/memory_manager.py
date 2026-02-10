@@ -92,11 +92,11 @@ class MemoryManager:
                 .select("preferences_json")
                 .eq("user_id", self.user_id)
                 .eq("bot_id", self.bot_id)
-                .maybe_single()
+                .limit(1)
                 .execute()
             )
-            if result.data and result.data.get("preferences_json"):
-                prefs = result.data["preferences_json"]
+            if result.data and result.data[0].get("preferences_json"):
+                prefs = result.data[0]["preferences_json"]
                 if isinstance(prefs, str):
                     prefs = json.loads(prefs)
                 logger.debug(f"Loaded long_term_profile for {self.user_id}")

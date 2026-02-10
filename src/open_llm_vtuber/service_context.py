@@ -13,6 +13,7 @@ from .agent.agents.agent_interface import AgentInterface
 from .translate.translate_interface import TranslateInterface
 
 from .modules.knowledge_base import KnowledgeBase
+from .integrations.memory_manager import MemoryManager
 
 from .mcpp.server_registry import ServerRegistry
 from .mcpp.tool_manager import ToolManager
@@ -65,6 +66,9 @@ class ServiceContext:
 
         # Qdrant RAG knowledge base (Phase 2)
         self.knowledge_base: Optional[KnowledgeBase] = None
+
+        # Supabase memory layer (Phase 4)
+        self.memory_manager: Optional[MemoryManager] = None
 
         # the system prompt is a combination of the persona prompt and live2d expression prompt
         self.system_prompt: str = None
@@ -324,6 +328,17 @@ class ServiceContext:
                 logger.warning(f"KnowledgeBase init failed (game RAG disabled): {exc}")
                 self.knowledge_base = None
 
+        # Initialize Supabase MemoryManager (Phase 4)
+        if not self.memory_manager:
+            try:
+                self.memory_manager = MemoryManager(
+                    user_id=self.client_uid or "default",
+                    bot_id=config.character_config.conf_uid or "mao_pro",
+                )
+            except Exception as exc:
+                logger.warning(f"MemoryManager init failed (Supabase disabled): {exc}")
+                self.memory_manager = None
+
         # store typed config references
         self.config = config
         self.system_config = config.system_config or self.system_config
@@ -496,6 +511,15 @@ class ServiceContext:
             " Short, punchy, in character. Never give long speeches or lists."
             " If you have more to say, pick the single most important thing and say only that."
         )
+
+        # Inject Supabase long-term profile + recent advice (Phase 4)
+        if self.memory_manager:
+            try:
+                profile_fragment = self.memory_manager.build_profile_prompt()
+                if profile_fragment:
+                    persona_prompt += f"\n\n{profile_fragment}"
+            except Exception as exc:
+                logger.warning(f"Memory profile injection failed: {exc}")
 
         # Inject live game context from vision loop (Phase 3)
         if self.knowledge_base and self.knowledge_base.current_game_context:
