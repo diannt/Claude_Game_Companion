@@ -159,6 +159,20 @@ async def process_single_conversation(
             )
             logger.info(f"AI response: {full_response}")
 
+        # Save advice to Supabase user_history (Phase 4)
+        skip_memory = metadata and metadata.get("skip_memory", False)
+        if full_response and not skip_memory and context.memory_manager:
+            game_name = "unknown"
+            if context.knowledge_base and context.knowledge_base.current_game_name:
+                game_name = context.knowledge_base.current_game_name
+            try:
+                context.memory_manager.save_advice(
+                    game_name=game_name,
+                    advice_given=full_response[:500],
+                )
+            except Exception as exc:
+                logger.warning(f"save_advice failed: {exc}")
+
         return full_response  # Return accumulated full_response
 
     except asyncio.CancelledError:

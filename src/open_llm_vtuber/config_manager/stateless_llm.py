@@ -162,18 +162,6 @@ class MistralConfig(OpenAICompatibleConfig):
     )
 
 
-class ZhipuConfig(OpenAICompatibleConfig):
-    """Configuration for Zhipu API."""
-
-    base_url: str = Field("https://open.bigmodel.cn/api/paas/v4/", alias="base_url")
-
-
-class DeepseekConfig(OpenAICompatibleConfig):
-    """Configuration for Deepseek API."""
-
-    base_url: str = Field("https://api.deepseek.com/v1", alias="base_url")
-
-
 class GroqConfig(OpenAICompatibleConfig):
     """Configuration for Groq API."""
 
@@ -229,10 +217,26 @@ class LlamaCppConfig(StatelessLLMBaseConfig):
     }
 
 
+class WSLClaudeConfig(StatelessLLMBaseConfig):
+    """Configuration for WSL Claude subprocess LLM (sole LLM provider)."""
+
+    session_dir: str = Field("sessions", alias="session_dir")
+    interrupt_method: Literal["system", "user"] = Field("user", alias="interrupt_method")
+
+    DESCRIPTIONS: ClassVar[dict[str, Description]] = {
+        **StatelessLLMBaseConfig.DESCRIPTIONS,
+        "session_dir": Description(
+            en="Working directory for claude -p subprocess (sessions folder)",
+            zh="session_dir",
+        ),
+    }
+
+
 class StatelessLLMConfigs(I18nMixin, BaseModel):
     """Pool of LLM provider configurations.
     This class contains configurations for different LLM providers."""
 
+    wsl_claude_llm: WSLClaudeConfig | None = Field(None, alias="wsl_claude_llm")
     stateless_llm_with_template: StatelessLLMWithTemplate | None = Field(
         None, alias="stateless_llm_with_template"
     )
@@ -243,8 +247,6 @@ class StatelessLLMConfigs(I18nMixin, BaseModel):
     lmstudio_llm: LmStudioConfig | None = Field(None, alias="lmstudio_llm")
     openai_llm: OpenAIConfig | None = Field(None, alias="openai_llm")
     gemini_llm: GeminiConfig | None = Field(None, alias="gemini_llm")
-    zhipu_llm: ZhipuConfig | None = Field(None, alias="zhipu_llm")
-    deepseek_llm: DeepseekConfig | None = Field(None, alias="deepseek_llm")
     groq_llm: GroqConfig | None = Field(None, alias="groq_llm")
     claude_llm: ClaudeConfig | None = Field(None, alias="claude_llm")
     llama_cpp_llm: LlamaCppConfig | None = Field(None, alias="llama_cpp_llm")
@@ -270,10 +272,6 @@ class StatelessLLMConfigs(I18nMixin, BaseModel):
         ),
         "mistral_llm": Description(
             en="Configuration for Mistral API", zh="Mistral API 配置"
-        ),
-        "zhipu_llm": Description(en="Configuration for Zhipu API", zh="Zhipu API 配置"),
-        "deepseek_llm": Description(
-            en="Configuration for Deepseek API", zh="Deepseek API 配置"
         ),
         "groq_llm": Description(en="Configuration for Groq API", zh="Groq API 配置"),
         "claude_llm": Description(

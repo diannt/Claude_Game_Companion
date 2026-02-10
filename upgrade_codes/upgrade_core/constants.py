@@ -7,8 +7,8 @@ import os
 USER_CONF = "conf.yaml"
 BACKUP_CONF = "conf.yaml.backup"
 
-ZH_DEFAULT_CONF = "config_templates/conf.ZH.default.yaml"
 EN_DEFAULT_CONF = "config_templates/conf.default.yaml"
+ZH_DEFAULT_CONF = EN_DEFAULT_CONF  # CHN template removed; always use English default
 
 yaml = YAML()
 # user_config = yaml.load(load_text_file_with_guess_encoding(USER_CONF))

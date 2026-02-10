@@ -8,7 +8,7 @@ dependencies = [
     "anthropic>=0.40.0",
     "azure-cognitiveservices-speech>=1.41.1",
     "chardet>=5.2.0",
-    "cartesia>=2.0.0", 
+    "cartesia>=2.0.0",
     "edge-tts>=7.0.0",
     "elevenlabs>=1.0.0",
     "fastapi[standard]>=0.115.8",
@@ -40,13 +40,16 @@ dependencies = [
     "websocket-client>=1.8.0",
     "letta-client>=0.1.100",
     "duckduckgo-mcp-server>=0.1.1",
-]
-
-[project.optional-dependencies]
-bilibili = [
-    "aiohttp>=3.10.0",
-    "Brotli~=1.1.0",
-    "yarl>=1.12.0,<2.0"
+    # Phase 2: Qdrant RAG knowledge base
+    "qdrant-client>=1.11.0",
+    "python-dotenv>=1.0.0",
+    # Phase 4: Supabase memory layer
+    "supabase>=2.3.0",
+    # Phase 3: Vision loop
+    "pyautogui>=0.9.54",
+    "pillow>=12.1.0",
+    "opencv-contrib-python-headless>=4.9.0",
+    "psycopg2-binary>=2.9.11",
 ]
 
 [tool.pixi.project]
@@ -64,5 +67,3 @@ cudatoolkit = ">=11.0,<12"
 target-version = "py310"
 
 [tool.ruff.lint]
-# Ignore E402 (module level import not at top of file) for the run_bilibili_live.py script
-per-file-ignores = { "scripts/run_bilibili_live.py" = ["E402"] }

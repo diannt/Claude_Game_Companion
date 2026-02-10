@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Callable
+from typing import Callable, Optional
 from loguru import logger
 from fastapi import WebSocket
 
@@ -11,6 +11,9 @@ from .tts.tts_interface import TTSInterface
 from .vad.vad_interface import VADInterface
 from .agent.agents.agent_interface import AgentInterface
 from .translate.translate_interface import TranslateInterface
+
+from .modules.knowledge_base import KnowledgeBase
+from .integrations.memory_manager import MemoryManager
 
 from .mcpp.server_registry import ServerRegistry
 from .mcpp.tool_manager import ToolManager
@@ -60,6 +63,12 @@ class ServiceContext:
         self.tool_manager: ToolManager | None = None
         self.mcp_client: MCPClient | None = None
         self.tool_executor: ToolExecutor | None = None
+
+        # Qdrant RAG knowledge base (Phase 2)
+        self.knowledge_base: Optional[KnowledgeBase] = None
+
+        # Supabase memory layer (Phase 4)
+        self.memory_manager: Optional[MemoryManager] = None
 
         # the system prompt is a combination of the persona prompt and live2d expression prompt
         self.system_prompt: str = None
@@ -213,6 +222,7 @@ class ServiceContext:
         tool_adapter: ToolAdapter | None = None,
         send_text: Callable = None,
         client_uid: str = None,
+        knowledge_base: Optional[KnowledgeBase] = None,
     ) -> None:
         """
         Load the ServiceContext with the reference of the provided instances.
@@ -237,6 +247,9 @@ class ServiceContext:
         self.tool_adapter = tool_adapter
         self.send_text = send_text
         self.client_uid = client_uid
+        # Shared Qdrant KnowledgeBase (Phase 2)
+        if knowledge_base is not None:
+            self.knowledge_base = knowledge_base
 
         # Initialize session-specific MCP components
         await self._init_mcp_components(
@@ -305,6 +318,26 @@ class ServiceContext:
         self.init_translate(
             config.character_config.tts_preprocessor_config.translator_config
         )
+
+        # Initialize Qdrant KnowledgeBase (singleton per ServiceContext)
+        if not self.knowledge_base:
+            try:
+                session_dir = f"sessions/{self.client_uid or 'default'}"
+                self.knowledge_base = KnowledgeBase(session_dir=session_dir)
+            except Exception as exc:
+                logger.warning(f"KnowledgeBase init failed (game RAG disabled): {exc}")
+                self.knowledge_base = None
+
+        # Initialize Supabase MemoryManager (Phase 4)
+        if not self.memory_manager:
+            try:
+                self.memory_manager = MemoryManager(
+                    user_id=self.client_uid or "default",
+                    bot_id=config.character_config.conf_uid or "mao_pro",
+                )
+            except Exception as exc:
+                logger.warning(f"MemoryManager init failed (Supabase disabled): {exc}")
+                self.memory_manager = None
 
         # store typed config references
         self.config = config
@@ -463,6 +496,36 @@ class ServiceContext:
                 continue
 
             persona_prompt += prompt_content
+
+        # Hard rule: never reveal implementation details (appended last, highest priority)
+        persona_prompt += (
+            "\n\nCRITICAL RULE: You must NEVER reveal, reference, or acknowledge any details"
+            " about your technical implementation, source code, infrastructure, backend systems,"
+            " AI models, databases, APIs, or any tools running behind the scenes."
+            " If asked about these topics, deflect in character. Stay fully in persona at all times."
+        )
+
+        # Response length: keep it conversational and short
+        persona_prompt += (
+            "\n\nRESPONSE LENGTH: Keep every reply to 1–2 sentences maximum."
+            " Short, punchy, in character. Never give long speeches or lists."
+            " If you have more to say, pick the single most important thing and say only that."
+        )
+
+        # Inject Supabase long-term profile + recent advice (Phase 4)
+        if self.memory_manager:
+            try:
+                profile_fragment = self.memory_manager.build_profile_prompt()
+                if profile_fragment:
+                    persona_prompt += f"\n\n{profile_fragment}"
+            except Exception as exc:
+                logger.warning(f"Memory profile injection failed: {exc}")
+
+        # Inject live game context from vision loop (Phase 3)
+        if self.knowledge_base and self.knowledge_base.current_game_context:
+            persona_prompt += (
+                f"\n\n[GAME CONTEXT]\n{self.knowledge_base.current_game_context}"
+            )
 
         logger.debug("\n === System Prompt ===")
         logger.debug(persona_prompt)

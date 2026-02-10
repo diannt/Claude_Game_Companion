@@ -15,6 +15,7 @@ class BasicMemoryAgentConfig(I18nMixin, BaseModel):
     """Configuration for the basic memory agent."""
 
     llm_provider: Literal[
+        "wsl_claude_llm",
         "stateless_llm_with_template",
         "openai_compatible_llm",
         "claude_llm",
@@ -23,8 +24,6 @@ class BasicMemoryAgentConfig(I18nMixin, BaseModel):
         "lmstudio_llm",
         "openai_llm",
         "gemini_llm",
-        "zhipu_llm",
-        "deepseek_llm",
         "groq_llm",
         "mistral_llm",
     ] = Field(..., alias="llm_provider")

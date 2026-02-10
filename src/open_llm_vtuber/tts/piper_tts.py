@@ -16,18 +16,17 @@ except ImportError:
 
 # Piper TTS requires trained ONNX model files for speech synthesis
 # Recommended models:
-# zh_CN-huayan-medium
 # en_US-lessac-medium
+# en_US-amy-medium
 # ja_JP-natsuya-medium
-# You can manually download Chinese models from: https://huggingface.co/csukuangfj/vits-piper-zh_CN-huayan-medium/tree/main
-# Find other models at: https://huggingface.co/models or train your own
+# Find models at: https://huggingface.co/models or train your own
 # Download both .onnx and .onnx.json files to models/piper/ directory
 
 
 class TTSEngine(TTSInterface):
     def __init__(
         self,
-        model_path: str = "models/piper/zh_CN-huayan-medium.onnx",
+        model_path: str = "models/piper/en_US-lessac-medium.onnx",
         speaker_id: int = 0,
         length_scale: float = 1.0,
         noise_scale: float = 0.667,
@@ -66,7 +65,7 @@ class TTSEngine(TTSInterface):
         if not os.path.exists(self.model_path):
             logger.warning(f"Piper model not found at: {self.model_path}")
             logger.warning(
-                "Download a model with: python3 -m piper.download_voices zh_CN-huayan-medium"
+                "Download a model with: python3 -m piper.download_voices en_US-lessac-medium"
             )
             logger.warning("Or download from: https://huggingface.co/models")
             raise FileNotFoundError(f"Model not found: {self.model_path}")

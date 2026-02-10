@@ -27,36 +27,6 @@ class TTSFactory:
             from .pyttsx3_tts import TTSEngine as Pyttsx3TTSEngine
 
             return Pyttsx3TTSEngine()
-        elif engine_type == "cosyvoice_tts":
-            from .cosyvoice_tts import TTSEngine as CosyvoiceTTSEngine
-
-            return CosyvoiceTTSEngine(
-                client_url=kwargs.get("client_url"),
-                mode_checkbox_group=kwargs.get("mode_checkbox_group"),
-                sft_dropdown=kwargs.get("sft_dropdown"),
-                prompt_text=kwargs.get("prompt_text"),
-                prompt_wav_upload_url=kwargs.get("prompt_wav_upload_url"),
-                prompt_wav_record_url=kwargs.get("prompt_wav_record_url"),
-                instruct_text=kwargs.get("instruct_text"),
-                seed=kwargs.get("seed"),
-                api_name=kwargs.get("api_name"),
-            )
-        elif engine_type == "cosyvoice2_tts":
-            from .cosyvoice2_tts import TTSEngine as Cosyvoice2TTSEngine
-
-            return Cosyvoice2TTSEngine(
-                client_url=kwargs.get("client_url"),
-                mode_checkbox_group=kwargs.get("mode_checkbox_group"),
-                sft_dropdown=kwargs.get("sft_dropdown"),
-                prompt_text=kwargs.get("prompt_text"),
-                prompt_wav_upload_url=kwargs.get("prompt_wav_upload_url"),
-                prompt_wav_record_url=kwargs.get("prompt_wav_record_url"),
-                instruct_text=kwargs.get("instruct_text"),
-                stream=kwargs.get("stream"),
-                seed=kwargs.get("seed"),
-                speed=kwargs.get("speed"),
-                api_name=kwargs.get("api_name"),
-            )
         elif engine_type == "melo_tts":
             from .melo_tts import TTSEngine as MeloTTSEngine
 
@@ -88,20 +58,6 @@ class TTSFactory:
                 media_type=kwargs.get("media_type"),
                 streaming_mode=kwargs.get("streaming_mode"),
             )
-        elif engine_type == "siliconflow_tts":
-            from .siliconflow_tts import SiliconFlowTTS
-
-            return SiliconFlowTTS(
-                api_url=kwargs.get("api_url"),
-                api_key=kwargs.get("api_key"),
-                default_model=kwargs.get("default_model"),
-                default_voice=kwargs.get("default_voice"),
-                sample_rate=kwargs.get("sample_rate"),
-                response_format=kwargs.get("response_format"),
-                stream=kwargs.get("stream"),
-                speed=kwargs.get("speed"),
-                gain=kwargs.get("gain"),
-            )
         elif engine_type == "coqui_tts":
             from .coqui_tts import TTSEngine as CoquiTTSEngine
 
@@ -120,16 +76,6 @@ class TTSFactory:
                 reference_id=kwargs.get("reference_id"),
                 latency=kwargs.get("latency"),
                 base_url=kwargs.get("base_url"),
-            )
-        elif engine_type == "minimax_tts":
-            from .minimax_tts import TTSEngine as MinimaxTTSEngine
-
-            return MinimaxTTSEngine(
-                group_id=kwargs.get("group_id"),
-                api_key=kwargs.get("api_key"),
-                model=kwargs.get("model", "speech-02-turbo"),
-                voice_id=kwargs.get("voice_id", "male-qn-qingse"),
-                pronunciation_dict=kwargs.get("pronunciation_dict", ""),
             )
         elif engine_type == "sherpa_onnx_tts":
             from .sherpa_onnx_tts import TTSEngine as SherpaOnnxTTSEngine
@@ -155,23 +101,6 @@ class TTSFactory:
                 ),  # Will use default "mp3" if not in kwargs
             )
 
-        elif engine_type == "spark_tts":
-            #         api_url: str = "http://127.0.0.1:7860/",
-            #         prompt_wav_upload: str = "voice_clone/voice_clone_voice.wav",
-            #         api_name:str = "voice_clone",
-            #         gender: str = "male",
-            #         pitch: int = 3,
-            #         speed: int = 3
-            from .spark_tts import TTSEngine as SparkTTSEngine
-
-            return SparkTTSEngine(
-                api_url=kwargs.get("api_url"),
-                prompt_wav_upload=kwargs.get("prompt_wav_upload"),
-                api_name=kwargs.get("api_name"),
-                gender=kwargs.get("gender"),
-                pitch=kwargs.get("pitch"),
-                speed=kwargs.get("speed"),
-            )
         elif engine_type == "elevenlabs_tts":
             from .elevenlabs_tts import TTSEngine as ElevenLabsTTSEngine
 
@@ -215,13 +144,3 @@ class TTSFactory:
             raise ValueError(f"Unknown TTS engine type: {engine_type}")
 
 
-# Example usage:
-# tts_engine = TTSFactory.get_tts_engine("azure", api_key="your_api_key", region="your_region", voice="your_voice")
-# tts_engine.speak("Hello world")
-if __name__ == "__main__":
-    tts_engine = TTSFactory.get_tts_engine(
-        "spark_tts",
-        api_url="http://127.0.0.1:7860/voice_clone",
-        used_voices=r"D:\python\spark_tts\收集的语音\纳西妲-完整.mp3",
-    )
-    tts_engine.generate_audio("Hello world")

@@ -61,6 +61,12 @@ models/piper_voice/*
 legacy/
 chat_history/
 knowledge_base/
+
+# Runtime session data (screenshots, etc.)
+sessions/
+
+# Claude Code project directory
+.claude/
 submodules/MeloTTS
 openapi_assistants.json
 openapi_memgpt.json
